@@ -30,6 +30,31 @@
   img.thumb { max-width: 60px; max-height: 45px; border-radius: 4px; }
   a { color: #0066cc; }
   small { color: #666; }
+  * { box-sizing: border-box; }
+  small#endpoint { word-break: break-all; }
+
+  /* ===== מובייל: מסכים עד 600px ===== */
+  @media (max-width: 600px) {
+    body { padding: 10px; }
+    .card { padding: 14px; margin-bottom: 12px; }
+    h1 { font-size: 19px; word-break: break-word; }
+    h2 { font-size: 16px; }
+
+    /* כפתורים ושדות ברוחב מלא ונוחים ללחיצה */
+    .row { flex-direction: column; align-items: stretch; }
+    .row input, .row button { width: 100%; font-size: 16px; padding: 12px; }
+    .row[style] { flex-direction: row; align-items: center; }
+    #refreshBtn { width: auto; padding: 8px 12px; }
+
+    /* הטבלה הופכת לרשימה: מסתירים כותרות ועמודת תאריך */
+    thead { display: none; }
+    td:nth-child(4) { display: none; }
+    td { padding: 10px 6px; font-size: 15px; }
+    td:nth-child(2) { word-break: break-all; }
+    td:nth-child(3) { white-space: nowrap; color: #666; font-size: 13px; }
+    img.thumb { max-width: 48px; max-height: 40px; }
+    .breadcrumbs { font-size: 15px; }
+  }
 </style>
 </head>
 <body>
