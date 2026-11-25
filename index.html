@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>הדרייב שלי ב-S3</title>
 <style>
-  body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 24px; color: #222; }
+  body { font-family: Arial, sans-serif; background: #ffebee; margin: 0; padding: 24px; color: #222; }
   .card { background: #fff; max-width: 950px; margin: 0 auto 20px; padding: 20px 24px; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
-  h1 { margin: 0 0 4px; font-size: 24px; }
+  h1 { margin: 0 0 4px; font-size: 24px; color: #c62828; }
   h2 { font-size: 18px; margin: 0 0 12px; }
-  button { background: #ff9900; border: none; color: #111; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 15px; }
-  button:hover { background: #e68a00; }
+  button { background: #d32f2f; border: none; color: #fff; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 15px; }
+  button:hover { background: #b71c1c; }
   button:disabled { background: #ccc; cursor: default; }
   button.secondary { background: #e8eaed; }
   button.secondary:hover { background: #d5d8dc; }
@@ -110,7 +110,6 @@
   }
 
   // ===== רשימת תיקיות וקבצים בתיקייה הנוכחית =====
-  // prefix = התיקייה, delimiter=/ = S3 מחזיר תת-תיקיות בנפרד (CommonPrefixes)
   async function listFiles() {
     const tbody = document.getElementById("fileList");
     tbody.innerHTML = '<tr><td colspan="4">טוען...</td></tr>';
@@ -126,7 +125,7 @@
         xml.querySelectorAll("CommonPrefixes > Prefix").forEach(p => folders.push(p.textContent));
         xml.querySelectorAll("Contents").forEach(c => {
           const key = c.querySelector("Key").textContent;
-          if (key === currentPrefix) return; // האובייקט שמייצג את התיקייה עצמה
+          if (key === currentPrefix) return;
           files.push({
             key,
             size: Number(c.querySelector("Size").textContent),
@@ -139,7 +138,6 @@
 
       tbody.innerHTML = "";
 
-      // כפתור "חזרה למעלה"
       if (currentPrefix) {
         const parent = currentPrefix.split("/").filter(Boolean).slice(0, -1).join("/");
         const tr = document.createElement("tr");
@@ -154,7 +152,6 @@
         return;
       }
 
-      // קודם תיקיות
       folders.sort().forEach(prefix => {
         const name = prefix.slice(currentPrefix.length, -1);
         const tr = document.createElement("tr");
@@ -165,7 +162,6 @@
         tbody.appendChild(tr);
       });
 
-      // אחר כך קבצים
       files.sort((a, b) => a.key.localeCompare(b.key, "he")).forEach(f => {
         const url = BASE_URL + "/" + keyToPath(f.key);
         const name = f.key.slice(currentPrefix.length);
@@ -182,7 +178,7 @@
     }
   }
 
-  // ===== העלאת קבצים לתיקייה הנוכחית (s3:PutObject) =====
+  // ===== העלאת קבצים לתיקייה הנוכחית =====
   async function uploadFiles() {
     const files = document.getElementById("fileInput").files;
     const btn = document.getElementById("uploadBtn");
@@ -213,7 +209,6 @@
   }
 
   // ===== יצירת תיקייה =====
-  // ב-S3 אין באמת תיקיות: יוצרים אובייקט ריק ששמו מסתיים ב-"/" (בדיוק מה שעושה Create folder בקונסולה)
   async function createFolder() {
     const input = document.getElementById("folderName");
     const name = input.value.trim().replace(/\//g, "");
