@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>הדרייב שלי ב-S3</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 24px; color: #222; }
+  .card { background: #fff; max-width: 950px; margin: 0 auto 20px; padding: 20px 24px; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  h1 { margin: 0 0 4px; font-size: 24px; }
+  h2 { font-size: 18px; margin: 0 0 12px; }
+  button { background: #ff9900; border: none; color: #111; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 15px; }
+  button:hover { background: #e68a00; }
+  button:disabled { background: #ccc; cursor: default; }
+  button.secondary { background: #e8eaed; }
+  button.secondary:hover { background: #d5d8dc; }
+  input[type=text] { padding: 7px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 15px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  #status { min-height: 20px; }
+  .ok { color: #1a7f37; } .err { color: #c62828; }
+  .breadcrumbs { font-size: 17px; margin-bottom: 14px; }
+  .breadcrumbs a { color: #0066cc; cursor: pointer; text-decoration: none; }
+  .breadcrumbs a:hover { text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: right; padding: 8px; border-bottom: 1px solid #eee; vertical-align: middle; }
+  th { background: #fafafa; }
+  tr.folder td { cursor: pointer; }
+  tr.folder:hover td { background: #f0f6ff; }
+  .icon { font-size: 26px; }
+  img.thumb { max-width: 60px; max-height: 45px; border-radius: 4px; }
+  a { color: #0066cc; }
+  small { color: #666; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>📦 הדרייב שלי – my-first-bucket-tshmuel0808</h1>
+  <small id="endpoint"></small>
+</div>
+
+<div class="card">
+  <h2>⬆️ העלאת קבצים לתיקייה הנוכחית</h2>
+  <div class="row">
+    <input type="file" id="fileInput" multiple>
+    <button id="uploadBtn">העלה</button>
+  </div>
+  <h2>📁 תיקייה חדשה</h2>
+  <div class="row">
+    <input type="text" id="folderName" placeholder="שם התיקייה">
+    <button id="newFolderBtn">צור תיקייה</button>
+  </div>
+  <div id="status"></div>
+</div>
+
+<div class="card">
+  <div class="row" style="justify-content: space-between">
+    <div class="breadcrumbs" id="breadcrumbs"></div>
+    <button class="secondary" id="refreshBtn">🔄 רענן</button>
+  </div>
+  <table>
+    <thead><tr><th style="width:80px">סוג</th><th>שם</th><th>גודל</th><th>עודכן</th></tr></thead>
+    <tbody id="fileList"><tr><td colspan="4">טוען...</td></tr></tbody>
+  </table>
+</div>
+
+<script>
+  // ===== הגדרות =====
+  const BUCKET = "my-first-bucket-tshmuel0808";
+  const REGION = "us-east-1";
+
+  const host = location.hostname;
+  const BASE_URL = (host.startsWith(BUCKET + ".s3") && !host.includes("s3-website"))
+    ? location.origin
+    : `https://${BUCKET}.s3.${REGION}.amazonaws.com`;
+  document.getElementById("endpoint").textContent = "Endpoint: " + BASE_URL;
+
+  // התיקייה שבה אנחנו נמצאים. "" = שורש הבאקט, "photos/" = תיקיית photos
+  let currentPrefix = "";
+
+  const keyToPath = key => key.split("/").map(encodeURIComponent).join("/");
+  const formatSize = b => b < 1024 ? b + " B" : b < 1048576 ? (b/1024).toFixed(1) + " KB" : (b/1048576).toFixed(1) + " MB";
+  const isImage = key => /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(key);
+  const setStatus = (html) => document.getElementById("status").innerHTML = html;
+
+  // ===== שורת ניווט: הבאקט › photos › 2026 =====
+  function renderBreadcrumbs() {
+    const bc = document.getElementById("breadcrumbs");
+    bc.innerHTML = "";
+    const parts = currentPrefix.split("/").filter(Boolean);
+    const add = (label, prefix) => {
+      const a = document.createElement("a");
+      a.textContent = label;
+      a.onclick = () => openFolder(prefix);
+      bc.appendChild(a);
+    };
+    add("🏠 הבאקט", "");
+    let acc = "";
+    parts.forEach(p => {
+      acc += p + "/";
+      bc.appendChild(document.createTextNode("  ›  "));
+      add(p, acc);
+    });
+  }
+
+  function openFolder(prefix) {
+    currentPrefix = prefix;
+    renderBreadcrumbs();
+    listFiles();
+  }
+
+  // ===== רשימת תיקיות וקבצים בתיקייה הנוכחית =====
+  // prefix = התיקייה, delimiter=/ = S3 מחזיר תת-תיקיות בנפרד (CommonPrefixes)
+  async function listFiles() {
+    const tbody = document.getElementById("fileList");
+    tbody.innerHTML = '<tr><td colspan="4">טוען...</td></tr>';
+    try {
+      let folders = [], files = [], token = null;
+      do {
+        let url = BASE_URL + "/?list-type=2&delimiter=%2F&prefix=" + encodeURIComponent(currentPrefix);
+        if (token) url += "&continuation-token=" + encodeURIComponent(token);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("HTTP " + res.status + " – בדקו הרשאת s3:ListBucket ו-CORS");
+        const xml = new DOMParser().parseFromString(await res.text(), "application/xml");
+
+        xml.querySelectorAll("CommonPrefixes > Prefix").forEach(p => folders.push(p.textContent));
+        xml.querySelectorAll("Contents").forEach(c => {
+          const key = c.querySelector("Key").textContent;
+          if (key === currentPrefix) return; // האובייקט שמייצג את התיקייה עצמה
+          files.push({
+            key,
+            size: Number(c.querySelector("Size").textContent),
+            modified: new Date(c.querySelector("LastModified").textContent)
+          });
+        });
+        const next = xml.querySelector("NextContinuationToken");
+        token = next ? next.textContent : null;
+      } while (token);
+
+      tbody.innerHTML = "";
+
+      // כפתור "חזרה למעלה"
+      if (currentPrefix) {
+        const parent = currentPrefix.split("/").filter(Boolean).slice(0, -1).join("/");
+        const tr = document.createElement("tr");
+        tr.className = "folder";
+        tr.innerHTML = `<td class="icon">⬆️</td><td colspan="3">.. (חזרה לתיקייה הקודמת)</td>`;
+        tr.onclick = () => openFolder(parent ? parent + "/" : "");
+        tbody.appendChild(tr);
+      }
+
+      if (folders.length === 0 && files.length === 0) {
+        tbody.insertAdjacentHTML("beforeend", '<tr><td colspan="4">התיקייה ריקה</td></tr>');
+        return;
+      }
+
+      // קודם תיקיות
+      folders.sort().forEach(prefix => {
+        const name = prefix.slice(currentPrefix.length, -1);
+        const tr = document.createElement("tr");
+        tr.className = "folder";
+        tr.innerHTML = `<td class="icon">📁</td><td><b></b></td><td>—</td><td>—</td>`;
+        tr.querySelector("b").textContent = name;
+        tr.onclick = () => openFolder(prefix);
+        tbody.appendChild(tr);
+      });
+
+      // אחר כך קבצים
+      files.sort((a, b) => a.key.localeCompare(b.key, "he")).forEach(f => {
+        const url = BASE_URL + "/" + keyToPath(f.key);
+        const name = f.key.slice(currentPrefix.length);
+        const tr = document.createElement("tr");
+        const preview = isImage(f.key) ? `<img class="thumb" src="${url}" alt="">` : '<span class="icon">📄</span>';
+        tr.innerHTML = `<td>${preview}</td><td><a target="_blank"></a></td>
+                        <td>${formatSize(f.size)}</td><td>${f.modified.toLocaleString("he-IL")}</td>`;
+        const a = tr.querySelector("a");
+        a.href = url; a.textContent = name;
+        tbody.appendChild(tr);
+      });
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="4" class="err">שגיאה בטעינת הרשימה: ${e.message}</td></tr>`;
+    }
+  }
+
+  // ===== העלאת קבצים לתיקייה הנוכחית (s3:PutObject) =====
+  async function uploadFiles() {
+    const files = document.getElementById("fileInput").files;
+    const btn = document.getElementById("uploadBtn");
+    if (!files.length) { setStatus('<span class="err">בחרו קובץ קודם</span>'); return; }
+
+    btn.disabled = true;
+    let ok = 0;
+    for (const file of files) {
+      setStatus(`מעלה את ${file.name}...`);
+      try {
+        const res = await fetch(BASE_URL + "/" + keyToPath(currentPrefix + file.name), {
+          method: "PUT",
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+          body: file
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        ok++;
+      } catch (e) {
+        setStatus(`<span class="err">העלאת ${file.name} נכשלה: ${e.message}</span>`);
+        btn.disabled = false;
+        return;
+      }
+    }
+    setStatus(`<span class="ok">✔ הועלו ${ok} קבצים בהצלחה</span>`);
+    document.getElementById("fileInput").value = "";
+    btn.disabled = false;
+    listFiles();
+  }
+
+  // ===== יצירת תיקייה =====
+  // ב-S3 אין באמת תיקיות: יוצרים אובייקט ריק ששמו מסתיים ב-"/" (בדיוק מה שעושה Create folder בקונסולה)
+  async function createFolder() {
+    const input = document.getElementById("folderName");
+    const name = input.value.trim().replace(/\//g, "");
+    if (!name) { setStatus('<span class="err">הקלידו שם לתיקייה</span>'); return; }
+    try {
+      const res = await fetch(BASE_URL + "/" + keyToPath(currentPrefix + name + "/"), { method: "PUT", body: "" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      setStatus(`<span class="ok">✔ התיקייה "${name}" נוצרה</span>`);
+      input.value = "";
+      listFiles();
+    } catch (e) {
+      setStatus(`<span class="err">יצירת התיקייה נכשלה: ${e.message}</span>`);
+    }
+  }
+
+  document.getElementById("uploadBtn").onclick = uploadFiles;
+  document.getElementById("newFolderBtn").onclick = createFolder;
+  document.getElementById("folderName").onkeydown = e => { if (e.key === "Enter") createFolder(); };
+  document.getElementById("refreshBtn").onclick = listFiles;
+  openFolder("");
+</script>
+</body>
+</html>
